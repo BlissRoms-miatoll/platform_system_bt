@@ -4122,7 +4122,6 @@ static void btm_sec_connect_after_reject_timeout(UNUSED_ATTR void* data) {
  ******************************************************************************/
 void btm_sec_connected(const RawAddress& bda, uint16_t handle, uint8_t status,
                        uint8_t enc_mode) {
-  tBTM_SEC_DEV_REC* p_dev_rec = btm_find_dev(bda);
   uint8_t res;
   bool is_pairing_device = false;
   bool addr_matched;
@@ -4131,6 +4130,7 @@ void btm_sec_connected(const RawAddress& bda, uint16_t handle, uint8_t status,
 
   btm_acl_resubmit_page();
 
+  tBTM_SEC_DEV_REC* p_dev_rec = btm_find_dev(bda);
   if (p_dev_rec) {
     VLOG(2) << __func__ << ": Security Manager: in state: "
             << btm_pair_state_descr(btm_cb.pairing_state)
@@ -4467,7 +4467,6 @@ tBTM_STATUS btm_sec_disconnect(uint16_t handle, uint8_t reason) {
  *
  ******************************************************************************/
 void btm_sec_disconnected(uint16_t handle, uint8_t reason) {
-  tBTM_SEC_DEV_REC* p_dev_rec = btm_find_dev_by_handle(handle);
   uint8_t old_pairing_flags = btm_cb.pairing_flags;
   int result = HCI_ERR_AUTH_FAILURE;
   tBTM_SEC_CALLBACK* p_callback = NULL;
@@ -4478,6 +4477,7 @@ void btm_sec_disconnected(uint16_t handle, uint8_t reason) {
 
   btm_acl_resubmit_page();
 
+  tBTM_SEC_DEV_REC* p_dev_rec = btm_find_dev_by_handle(handle);
   if (!p_dev_rec) return;
 
   transport =
@@ -4566,6 +4566,7 @@ void btm_sec_disconnected(uint16_t handle, uint8_t reason) {
     LOG(INFO) << __func__ << " removing bond to device that used sample LTK: " << p_dev_rec->bd_addr;
 
     bta_dm_remove_device(p_dev_rec->bd_addr);
+    return;
   }
 
   BTM_TRACE_EVENT("%s after update sec_flags=0x%x", __func__,
@@ -4880,6 +4881,13 @@ void btm_sec_pin_code_request(const RawAddress& p_bda) {
 
   VLOG(2) << __func__ << " BDA: " << p_bda
           << " state: " << btm_pair_state_descr(btm_cb.pairing_state);
+
+  RawAddress local_bd_addr = *controller_get_interface()->get_address();
+  if (p_bda == local_bd_addr) {
+    android_errorWriteLog(0x534e4554, "174626251");
+    btsnd_hcic_pin_code_neg_reply(p_bda);
+    return;
+  }
 
   if (btm_cb.pairing_state != BTM_PAIR_STATE_IDLE) {
     if ((p_bda == btm_cb.pairing_bda) &&

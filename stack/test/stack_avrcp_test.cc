@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <arpa/inet.h>  // htons
 #include <dlfcn.h>
 #include <gtest/gtest.h>
 
@@ -25,6 +26,56 @@ class StackAvrcpTest : public ::testing::Test {
 
   virtual ~StackAvrcpTest() = default;
 };
+
+TEST_F(StackAvrcpTest, test_avrcp_ctrl_parse_vendor_rsp) {
+  uint8_t scratch_buf[512]{};
+  uint16_t scratch_buf_len = 512;
+  tAVRC_MSG msg{};
+  tAVRC_RESPONSE result{};
+  uint8_t vendor_rsp_buf[512]{};
+
+  msg.hdr.opcode = AVRC_OP_VENDOR;
+  msg.hdr.ctype = AVRC_CMD_STATUS;
+
+  memset(vendor_rsp_buf, 0, sizeof(vendor_rsp_buf));
+  vendor_rsp_buf[0] = AVRC_PDU_GET_ELEMENT_ATTR;
+  uint8_t* p = &vendor_rsp_buf[2];
+  UINT16_TO_BE_STREAM(p, 0x0009);   // parameter length
+  UINT8_TO_STREAM(p, 0x01);         // number of attributes
+  UINT32_TO_STREAM(p, 0x00000000);  // attribute ID
+  UINT16_TO_STREAM(p, 0x0000);      // character set ID
+  UINT16_TO_STREAM(p, 0xffff);      // attribute value length
+  msg.vendor.p_vendor_data = vendor_rsp_buf;
+  msg.vendor.vendor_len = 13;
+  EXPECT_EQ(
+      AVRC_Ctrl_ParsResponse(&msg, &result, scratch_buf, &scratch_buf_len),
+      AVRC_STS_INTERNAL_ERR);
+}
+
+TEST_F(StackAvrcpTest, test_avrcp_parse_browse_rsp) {
+  uint8_t scratch_buf[512]{};
+  uint16_t scratch_buf_len = 512;
+  tAVRC_MSG msg{};
+  tAVRC_RESPONSE result{};
+  uint8_t browse_rsp_buf[512]{};
+
+  msg.hdr.opcode = AVRC_OP_BROWSE;
+
+  memset(browse_rsp_buf, 0, sizeof(browse_rsp_buf));
+  browse_rsp_buf[0] = AVRC_PDU_GET_ITEM_ATTRIBUTES;
+  uint8_t* p = &browse_rsp_buf[1];
+  UINT16_TO_BE_STREAM(p, 0x000a);   // parameter length;
+  UINT8_TO_STREAM(p, 0x04);         // status
+  UINT8_TO_STREAM(p, 0x01);         // number of attribute
+  UINT32_TO_STREAM(p, 0x00000000);  // attribute ID
+  UINT16_TO_STREAM(p, 0x0000);      // character set ID
+  UINT16_TO_STREAM(p, 0xffff);      // attribute value length
+  msg.browse.p_browse_data = browse_rsp_buf;
+  msg.browse.browse_len = 13;
+  EXPECT_EQ(
+      AVRC_Ctrl_ParsResponse(&msg, &result, scratch_buf, &scratch_buf_len),
+      AVRC_STS_BAD_CMD);
+}
 
 TEST_F(StackAvrcpTest, test_avrcp_parse_browse_cmd) {
   uint8_t scratch_buf[512]{};
@@ -109,4 +160,50 @@ TEST_F(StackAvrcpTest, test_avrcp_parse_browse_cmd) {
   msg.browse.browse_len = 7;
   EXPECT_EQ(AVRC_ParsCommand(&msg, &result, scratch_buf, sizeof(scratch_buf)),
             AVRC_STS_NO_ERROR);
+}
+
+TEST_F(StackAvrcpTest, test_avrcp_pdu_register_notification) {
+  ASSERT_EQ(htons(0x500), 5);
+
+  struct {
+    uint8_t pdu;
+    uint8_t reserved;
+    uint16_t len;
+    struct {
+      uint8_t event_id;
+      uint32_t param;
+    } payload;
+  } data = {
+      AVRC_PDU_REGISTER_NOTIFICATION,
+      0,  // reserved
+      htons(sizeof(data.payload)),
+      .payload =
+          {
+              .event_id = 0,
+              .param = 0x1234,
+          },
+  };
+
+  tAVRC_MSG msg = {
+      .vendor =
+          {
+              .hdr =
+                  {
+                      .ctype = AVRC_CMD_NOTIF,
+                      .opcode = AVRC_OP_VENDOR,
+                  },
+              .p_vendor_data = (uint8_t*)&data,
+              .vendor_len = sizeof(data),
+          },
+  };
+  tAVRC_COMMAND result{};
+
+  // Run through all possible event ids
+  uint8_t id = 0;
+  do {
+    data.payload.event_id = id;
+    ASSERT_EQ((id == 0 || id > AVRC_NUM_NOTIF_EVENTS) ? AVRC_STS_BAD_PARAM
+                                                      : AVRC_STS_NO_ERROR,
+              AVRC_Ctrl_ParsCommand(&msg, &result));
+  } while (++id != 0);
 }

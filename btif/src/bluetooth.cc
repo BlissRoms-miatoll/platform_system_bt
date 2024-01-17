@@ -82,6 +82,7 @@ using bluetooth::hearing_aid::HearingAidInterface;
 bt_callbacks_t* bt_hal_cbacks = NULL;
 bool restricted_mode = false;
 bool niap_mode = false;
+bool is_local_device_atv = false;
 
 /*******************************************************************************
  *  Externs
@@ -134,7 +135,7 @@ static bool is_profile(const char* p1, const char* p2) {
  ****************************************************************************/
 
 static int init(bt_callbacks_t* callbacks, bool start_restricted,
-                bool is_niap_mode) {
+                bool is_niap_mode, bool is_atv) {
   LOG_INFO(LOG_TAG, "%s: start restricted = %d ; niap = %d", __func__,
            start_restricted, is_niap_mode);
 
@@ -147,6 +148,7 @@ static int init(bt_callbacks_t* callbacks, bool start_restricted,
   bt_hal_cbacks = callbacks;
   restricted_mode = start_restricted;
   niap_mode = is_niap_mode;
+  is_local_device_atv = is_atv;
   stack_manager_get_interface()->init_stack();
   btif_debug_init();
   return BT_STATUS_SUCCESS;
@@ -170,6 +172,8 @@ static void cleanup(void) { stack_manager_get_interface()->clean_up_stack(); }
 
 bool is_restricted_mode() { return restricted_mode; }
 bool is_niap_mode() { return niap_mode; }
+
+bool is_atv_device() { return is_local_device_atv; }
 
 static int get_adapter_properties(void) {
   /* sanity check */
@@ -285,10 +289,12 @@ static int get_connection_state(const RawAddress* bd_addr) {
 
 static int pin_reply(const RawAddress* bd_addr, uint8_t accept, uint8_t pin_len,
                      bt_pin_code_t* pin_code) {
+  bt_pin_code_t tmp_pin_code;
   /* sanity check */
   if (!interface_ready()) return BT_STATUS_NOT_READY;
 
-  return btif_dm_pin_reply(bd_addr, accept, pin_len, pin_code);
+  memcpy(&tmp_pin_code, pin_code, pin_len);
+  return btif_dm_pin_reply(bd_addr, accept, pin_len, &tmp_pin_code);
 }
 
 static int ssp_reply(const RawAddress* bd_addr, bt_ssp_variant_t variant,
